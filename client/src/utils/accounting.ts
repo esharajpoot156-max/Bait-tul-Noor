@@ -15,7 +15,7 @@ export const ROLE_PROFILES: Record<UserRole, RoleProfile> = {
   management: {
     role: 'management',
     label: 'Management / Admin',
-    staffName: 'Haji Abdul Kareem',
+    staffName: 'Muhmmad Abbas',
     title: 'General Secretary',
     permissionsSummary:
       'Full overview, backdate voucher approval, all four ledgers, and backup import/export.',
@@ -23,7 +23,7 @@ export const ROLE_PROFILES: Record<UserRole, RoleProfile> = {
   accountant: {
     role: 'accountant',
     label: 'Accountant',
-    staffName: 'Tariq Mahmood',
+    staffName: 'Asim Bhai',
     title: 'Society Accountant',
     permissionsSummary:
       'Credit/Debit entries, four-ledger management, bank/wallet reconciliation, assets, and Excel/PDF exports.',
@@ -178,7 +178,7 @@ export const STAFF_MEMBERS = [
   'Ayesha Siddiqui',
   'Bilal Qureshi',
   'Sana Farooq',
-  'Tariq Mahmood',
+  'Asim Bhai',
 ];
 
 export function formatPkr(amount: number): string {

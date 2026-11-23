@@ -30,7 +30,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       fundInterest: 'Mashroot Fund (Restricted Fund)',
       pledgedAmountPkr: 50000,
       receivedAmountPkr: 50000,
-      assignedTo: 'Tariq Mahmood',
+      assignedTo: 'Asim Bhai',
       followUpDate: '2026-11-20',
       followUpNote: 'Verified Meezan Bank IBFT receipt.',
       notes: 'Restricted specifically for Girls School uniform and winter shoes.',
@@ -131,7 +131,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       fundInterest: 'Sadqa',
       pledgedAmountPkr: 25000,
       receivedAmountPkr: 25000,
-      assignedTo: 'Tariq Mahmood',
+      assignedTo: 'Asim Bhai',
       followUpDate: '2026-11-21',
       followUpNote: 'Auto-synced JazzCash receipt #JC-88412.',
       notes: 'Direct online Sadqa contribution via website widget.',
@@ -154,7 +154,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 185000,
       donorOrPayee: 'Al-Khair Trust & Individual Zakaat Pool',
       notes: 'Opening November Zakaat welfare fund transfer.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -171,7 +171,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 140000,
       donorOrPayee: 'Noorani Associates (Corporate Atiyaat)',
       notes: 'Unrestricted grant for monthly admin & facility overhead.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -188,7 +188,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 65000,
       donorOrPayee: 'Ch. Iftikhar Ahmed (Landlord)',
       notes: 'Orphanage Hostel Building Rent - November 2026.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -206,7 +206,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       donorOrPayee: 'Muhammad Usman Tariq',
       linkedLeadId: 'LD-1001',
       notes: 'Converted from Meta Ads WhatsApp inquiry LD-1001.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -216,7 +216,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       systemEntryTimestamp: '2026-11-16T15:40:00Z',
       isBackdated: true,
       backdateApproved: true,
-      backdateApprovedBy: 'Haji Abdul Kareem',
+      backdateApprovedBy: 'Muhammad Abbas',
       type: 'Debit',
       ledger: 'Welfare Ledger',
       category: "Girls' School Expenses (Bachiyon ke school ke akhrajat)",
@@ -224,7 +224,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 48500,
       donorOrPayee: 'Iqra Girls Model School',
       notes: 'Backdated voucher: Nov tuition & exam fees for 14 resident girls.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -242,7 +242,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       donorOrPayee: 'Dr. Sadia Humayun',
       linkedLeadId: 'LD-1002',
       notes: 'Restricted for girls uniforms & winter shoes.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -259,7 +259,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 35000,
       donorOrPayee: 'Fundraising Campaign Pool',
       notes: 'Dedicated donor allocation for winter outreach campaign.',
-      enteredByName: 'Haji Abdul Kareem',
+      enteredByName: 'Muhammad Abbas',
       enteredByRole: 'management',
     },
     {
@@ -276,7 +276,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 14500,
       donorOrPayee: 'Meta Platforms Ad Billing',
       notes: 'WhatsApp click-to-chat Meta Ads campaign spend.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -294,7 +294,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       donorOrPayee: 'Rizwanullah Khan',
       linkedLeadId: 'LD-1008',
       notes: 'Website Donation Form instant sync.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -312,7 +312,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 18200,
       donorOrPayee: 'Madina Cash & Carry',
       notes: 'Weekly kitchen groceries, vegetables, milk & poultry.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -330,7 +330,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 16000,
       donorOrPayee: 'Al-Rehman School Van Service',
       notes: 'Backdated petty cash voucher awaiting Management approval.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -347,7 +347,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 32500,
       donorOrPayee: 'Masjid & Market Donation Boxes Count',
       notes: 'Weekly counted cash from 4 sealed society donation boxes.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -364,7 +364,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 19800,
       donorOrPayee: 'LESCO Electricity Bill #77842',
       notes: 'November electricity bill for girls hostel & study hall.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
     {
@@ -381,7 +381,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       amountPkr: 42000,
       donorOrPayee: 'Warden, Cook & Caretaker Payroll',
       notes: 'Advance mid-month staff salary disbursement.',
-      enteredByName: 'Tariq Mahmood',
+      enteredByName: 'Asim Bhai',
       enteredByRole: 'accountant',
     },
   ],
@@ -392,7 +392,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       accountRef: 'PK42 FAYS 0001 2298 4410',
       statementBalancePkr: 13200,
       lastReconciledDate: '2026-11-22',
-      reconciledBy: 'Tariq Mahmood',
+      reconciledBy: 'Asim Bhai',
       notes: 'Matches Faysal Bank online statement as of 22 Nov.',
     },
     {
@@ -401,7 +401,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       accountRef: 'PK88 MEZN 0002 8810 5541',
       statementBalancePkr: 261500,
       lastReconciledDate: '2026-11-22',
-      reconciledBy: 'Tariq Mahmood',
+      reconciledBy: 'Asim Bhai',
       notes: 'Zakaat & Mashroot restricted deposits verified.',
     },
     {
@@ -410,7 +410,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       accountRef: '0300-8812400 (Bait-ul-Noor)',
       statementBalancePkr: 6800,
       lastReconciledDate: '2026-11-21',
-      reconciledBy: 'Tariq Mahmood',
+      reconciledBy: 'Asim Bhai',
       notes: 'Includes website Sadqa deposit less weekly kitchen payout.',
     },
     {
@@ -419,7 +419,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       accountRef: '0345-8812400 (Bait-ul-Noor)',
       statementBalancePkr: 20500,
       lastReconciledDate: '2026-11-18',
-      reconciledBy: 'Tariq Mahmood',
+      reconciledBy: 'Asim Bhai',
       notes: 'Marketing campaign wallet balance.',
     },
     {
@@ -428,7 +428,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
       accountRef: '4 Sealed Boxes + Petty Cash Vault',
       statementBalancePkr: 16500,
       lastReconciledDate: '2026-11-22',
-      reconciledBy: 'Haji Abdul Kareem',
+      reconciledBy: 'Muhmmad Abbas',
       notes: 'Physical cash count verified after transport voucher deduction.',
     },
   ],
@@ -520,7 +520,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
     {
       id: 'AUD-01',
       timestamp: '2026-11-16T15:40:00Z',
-      actorName: 'Tariq Mahmood',
+      actorName: 'Asim Bhai',
       actorRole: 'accountant',
       action: 'Backdated Voucher Recorded',
       targetRef: 'VCH-2611-005',
@@ -530,7 +530,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
     {
       id: 'AUD-02',
       timestamp: '2026-11-16T16:12:00Z',
-      actorName: 'Haji Abdul Kareem',
+      actorName: 'Muhmmad Abbas',
       actorRole: 'management',
       action: 'Backdate Approved',
       targetRef: 'VCH-2611-005',
@@ -548,7 +548,7 @@ export const INITIAL_SYSTEM_STATE: SystemState = {
     {
       id: 'AUD-04',
       timestamp: '2026-11-22T09:10:00Z',
-      actorName: 'Tariq Mahmood',
+      actorName: 'Asim Bhai',
       actorRole: 'accountant',
       action: 'Backdated Voucher Pending Approval',
       targetRef: 'VCH-2611-011',

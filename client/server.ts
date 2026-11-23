@@ -494,7 +494,7 @@ app.post('/api/website-sync', async (req, res) => {
         fundInterest: fundType,
         pledgedAmountPkr: amountPkr,
         receivedAmountPkr: amountPkr,
-        assignedTo: 'Tariq Mahmood',
+        assignedTo: 'Asim Bhai',
         followUpDate: todayIso,
         followUpNote: `Auto-synced website payment via ${channel}.`,
         notes: notes || 'Direct website online donation.',

@@ -92,7 +92,7 @@ export const PrintStatementModal: React.FC<PrintStatementModalProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-5 border-b-2 border-emerald-900 mb-6">
             <div className="flex items-center gap-4">
               <img
-                src="/assets/aistudio/WhatsApp_Image_2026-11-23_at_3.34.52_PM_4c23eef4.jpeg"
+                src="/logo.jpeg"
                 alt="Bait-ul-Noor Orphanage Society logo"
                 referrerPolicy="no-referrer"
                 className="w-14 h-14 rounded-full object-contain border border-slate-200 bg-white shrink-0"
