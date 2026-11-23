@@ -1,0 +1,6 @@
+{
+  "name": "Bait-ul-Noor CRM & Accounting",
+  "description": "Donor lead management CRM, four-ledger NGO accounting, bank reconciliation, website integration, and backup system for Bait-ul-Noor Orphanage Society.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
