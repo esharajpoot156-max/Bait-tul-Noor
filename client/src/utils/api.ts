@@ -26,22 +26,73 @@ export interface DatabaseHealth {
   errorMessage?: string;
 }
 
+// The logged-in user, as returned by the backend login route
+export interface AuthUser {
+  username: string;
+  role: UserRole;
+  staffName: string;
+  title: string;
+}
+
+// Backend address. Empty in development (the Vite proxy forwards /api to the backend).
+// On Vercel, set VITE_API_URL to the deployed backend address.
+const API_BASE = String(import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+
+// ---- Login token storage (kept in the browser so a page refresh stays logged in) ----
+const TOKEN_KEY = 'bn_auth_token';
+
+export function getStoredToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeToken(token: string): void {
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // Storage blocked: the person simply has to log in again after a refresh
+  }
+}
+
+export function clearStoredToken(): void {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Nothing to clear
+  }
+}
+
+// The app registers a function here so any "401 Unauthorized" answer
+// (for example an expired session) sends the person back to the login screen
+let unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
 async function apiRequest<T>(
   url: string,
   options: {
     method?: string;
+    // Kept so existing calls still compile. The backend now reads the role
+    // from the login token, so this value is no longer sent.
     role?: UserRole;
     body?: unknown;
+    isLogin?: boolean;
   } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (options.role) {
-    headers['x-user-role'] = options.role;
+  const token = getStoredToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, {
+  const res = await fetch(API_BASE + url, {
     method: options.method || 'GET',
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -49,9 +100,35 @@ async function apiRequest<T>(
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // Session ended: forget the token and show the login screen
+    if (res.status === 401 && !options.isLogin) {
+      clearStoredToken();
+      unauthorizedHandler?.();
+    }
     throw new Error(data.error || `Request failed (${res.status})`);
   }
   return data as T;
+}
+
+// ---- Authentication ----
+
+export async function loginApi(
+  username: string,
+  password: string
+): Promise<AuthUser> {
+  const data = await apiRequest<{ token: string; user: AuthUser }>(
+    '/api/auth/login',
+    { method: 'POST', body: { username, password }, isLogin: true }
+  );
+  storeToken(data.token);
+  return data.user;
+}
+
+// Restores the session after a page refresh (null when nobody is logged in)
+export async function fetchCurrentUserApi(): Promise<AuthUser | null> {
+  if (!getStoredToken()) return null;
+  const data = await apiRequest<{ user: AuthUser }>('/api/auth/me');
+  return data.user;
 }
 
 export async function fetchInitialSystemState(): Promise<{

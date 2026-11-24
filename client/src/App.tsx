@@ -22,20 +22,26 @@ import {
 } from './utils/accounting';
 import {
   approveBackdateApi,
+  AuthUser,
+  clearStoredToken,
   convertLeadApi,
   createAssetApi,
   createLeadApi,
   createRationApi,
   createTransactionApi,
   DatabaseHealth,
+  fetchCurrentUserApi,
   fetchDatabaseHealth,
   fetchInitialSystemState,
+  getStoredToken,
   resetDatabaseApi,
   restoreSystemBackupApi,
+  setUnauthorizedHandler,
   submitWebsiteSyncApi,
   updateLeadApi,
   updateReconciliationApi,
 } from './utils/api';
+import { LoginScreen } from './components/LoginScreen';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { LeadsCrmView } from './components/LeadsCrmView';
@@ -81,15 +87,26 @@ const TAB_TITLES: Record<ActiveTab, { title: string; subtitle: string }> = {
   },
 };
 
-export default function App() {
+// The main workspace. It is only shown after a successful login.
+function Workspace({
+  user,
+  onLogout,
+}: {
+  user: AuthUser;
+  onLogout: () => void;
+}) {
   const [systemState, setSystemState] =
     useState<SystemState>(INITIAL_SYSTEM_STATE);
   const [dbStatus, setDbStatus] = useState<DatabaseHealth | null>(null);
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
-  const [currentRole, setCurrentRole] = useState<UserRole>('management');
+  // Follow-Up Staff start on (and only see) the donor leads tab
+  const [activeTab, setActiveTab] = useState<ActiveTab>(
+    user.role === 'followup' ? 'leads' : 'dashboard'
+  );
+  // The role now comes from the login, so it can no longer be switched by hand
+  const currentRole: UserRole = user.role;
   const [selectedLedgerView, setSelectedLedgerView] = useState<
     LedgerName | 'All' | 'Audit'
   >('All');
@@ -273,8 +290,8 @@ export default function App() {
         <Sidebar
           activeTab={activeTab}
           onSelectTab={setActiveTab}
-          currentRole={currentRole}
-          onChangeRole={setCurrentRole}
+          user={user}
+          onLogout={onLogout}
           pendingBackdateCount={pendingBackdateCount}
           newInquiriesCount={newInquiriesCount}
         />
@@ -299,14 +316,16 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-4 shrink-0">
-              <div className="text-right hidden sm:block">
-                <div className="text-xs text-slate-500">
-                  Net Society Balance
+              {currentRole !== 'followup' && (
+                <div className="text-right hidden sm:block">
+                  <div className="text-xs text-slate-500">
+                    Net Society Balance
+                  </div>
+                  <div className="font-mono tabular-nums text-sm font-semibold text-emerald-900">
+                    {formatPkr(computed.netBalance)}
+                  </div>
                 </div>
-                <div className="font-mono tabular-nums text-sm font-semibold text-emerald-900">
-                  {formatPkr(computed.netBalance)}
-                </div>
-              </div>
+              )}
               <button
                 type="button"
                 onClick={() =>
@@ -455,4 +474,46 @@ export default function App() {
       </div>
     </MotionConfig>
   );
+}
+
+// Login gate: shows the login screen until the backend accepts a password
+export default function App() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  // If a token is already saved, check it before deciding what to show
+  const [checkingSession, setCheckingSession] = useState(
+    () => getStoredToken() !== null
+  );
+
+  useEffect(() => {
+    // Any "401 Unauthorized" answer (for example an expired session) logs the person out
+    setUnauthorizedHandler(() => setUser(null));
+
+    if (getStoredToken()) {
+      fetchCurrentUserApi()
+        .then((current) => setUser(current))
+        .catch(() => setUser(null))
+        .finally(() => setCheckingSession(false));
+    }
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  const handleLogout = () => {
+    clearStoredToken();
+    setUser(null);
+  };
+
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-sm text-slate-500">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onLoggedIn={setUser} />;
+  }
+
+  // "key" makes sure no data from a previous login is kept when another person signs in
+  return <Workspace key={user.username} user={user} onLogout={handleLogout} />;
 }
