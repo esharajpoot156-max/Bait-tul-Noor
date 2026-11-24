@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
 import type {
   AuditLogEntry,
   DonorLead,
@@ -54,6 +55,33 @@ import {
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+// CORS: only the websites listed in CORS_ORIGINS (comma separated) may call this API.
+// Example: CORS_ORIGINS=https://bait-tul-noor.vercel.app,https://www.baitulnoor.org
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+if (allowedOrigins.length === 0) {
+  console.warn('[cors] CORS_ORIGINS is empty: browsers on other domains will be blocked.');
+}
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // No Origin header = server-to-server call or health check: allow
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-role'],
+    maxAge: 86400,
+  })
+);
 
 app.use(express.json({ limit: '5mb' }));
 
