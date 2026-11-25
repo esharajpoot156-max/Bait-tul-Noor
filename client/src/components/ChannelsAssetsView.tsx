@@ -14,11 +14,11 @@ import {
   UserRole,
 } from '../types/system';
 import {
-  exportRowsToCsv,
+  exportRowsToXlsx,
   formatPkr,
   formatShortDate,
   getTodayIsoDate,
-} from '../utils/accounting';
+} from '../utils/accounts';
 import { PrintReportConfig } from './PrintStatementModal';
 
 interface ChannelsAssetsViewProps {
@@ -85,8 +85,8 @@ export const ChannelsAssetsView: React.FC<ChannelsAssetsViewProps> = ({
   );
 
   const handleExportReconciliationCsv = () => {
-    exportRowsToCsv(
-      `bait-ul-noor-channel-reconciliation-${getTodayIsoDate()}.csv`,
+    exportRowsToXlsx(
+      `bait-ul-noor-channel-reconciliation-${getTodayIsoDate()}.xlsx`,
       [
         'Channel',
         'Type',
@@ -203,7 +203,7 @@ export const ChannelsAssetsView: React.FC<ChannelsAssetsViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Excel (.csv)</span>
+                <span>Excel (.xlsx)</span>
               </button>
               <button
                 type="button"

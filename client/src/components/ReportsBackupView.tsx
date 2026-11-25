@@ -21,14 +21,15 @@ import {
   UserRole,
 } from '../types/system';
 import {
+  decryptBackup,
   deobfuscateWithPassphrase,
-  exportRowsToCsv,
+  exportRowsToXlsx,
   getTodayIsoDate,
   LEDGER_NAMES,
-  obfuscateWithPassphrase,
+  encryptBackup,
   ROLE_PROFILES,
   sha256Hex,
-} from '../utils/accounting';
+} from '../utils/accounts';
 import { DatabaseHealth } from '../utils/api';
 import { PrintReportConfig } from './PrintStatementModal';
 
@@ -101,8 +102,8 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
       ledgerFilter === 'All'
         ? 'master-statement'
         : ledgerFilter.toLowerCase().replace(/\s+/g, '-');
-    exportRowsToCsv(
-      `bait-ul-noor-${slug}-${todayIso}.csv`,
+    exportRowsToXlsx(
+      `bait-ul-noor-${slug}-${todayIso}.xlsx`,
       [
         'Txn Date',
         'Voucher #',
@@ -137,8 +138,8 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
   };
 
   const downloadLeadsCsv = () => {
-    exportRowsToCsv(
-      `bait-ul-noor-donor-leads-${todayIso}.csv`,
+    exportRowsToXlsx(
+      `bait-ul-noor-donor-leads-${todayIso}.xlsx`,
       [
         'Lead ID',
         'Donor Name',
@@ -169,8 +170,8 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
   };
 
   const downloadReconciliationCsv = () => {
-    exportRowsToCsv(
-      `bait-ul-noor-reconciliation-${todayIso}.csv`,
+    exportRowsToXlsx(
+      `bait-ul-noor-reconciliation-${todayIso}.xlsx`,
       [
         'Channel',
         'Type',
@@ -200,18 +201,20 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
       const rawJson = JSON.stringify(systemState);
       const checksumSha256 = await sha256Hex(rawJson);
       const encrypted = Boolean(exportPassphrase.trim());
-      const payload = encrypted
-        ? obfuscateWithPassphrase(rawJson, exportPassphrase.trim())
-        : rawJson;
+      const sealed = encrypted
+        ? await encryptBackup(rawJson, exportPassphrase.trim())
+        : null;
+      const payload = sealed ? sealed.payload : rawJson;
 
       const backup: BackupFilePayload = {
-        formatVersion: '1.0',
+        formatVersion: encrypted ? '2.0' : '1.0',
         organization: 'Bait-ul-Noor Orphanage Society',
         exportedAt: new Date().toISOString(),
         exportedBy: ROLE_PROFILES[currentRole].staffName,
         checksumSha256,
         encrypted,
         payload,
+        ...(sealed ? { encryption: sealed.encryption } : {}),
       };
 
       const blob = new Blob([JSON.stringify(backup, null, 2)], {
@@ -231,7 +234,7 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
 
       setStatusMessage({
         type: 'success',
-        text: `Full system backup exported (${encrypted ? 'passphrase-encrypted' : 'structured JSON'} · SHA-256 verified).`,
+        text: `Full system backup exported (${encrypted ? 'AES-256 encrypted' : 'structured JSON'} · SHA-256 verified).`,
       });
     } catch {
       setStatusMessage({
@@ -239,6 +242,21 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
         text: 'Failed to generate backup file. Please try again.',
       });
     }
+  };
+
+  const handleResetClick = async () => {
+    const typed = window.prompt(
+      'WARNING: this erases ALL leads, vouchers, ledgers, assets and audit history. It cannot be undone.\n\nDownload a full backup first.\n\nType RESET to continue.'
+    );
+    if (typed === null) return;
+    if (typed.trim() !== 'RESET') {
+      setStatusMessage({
+        type: 'error',
+        text: 'Reset cancelled: you did not type RESET.',
+      });
+      return;
+    }
+    await onResetToSeed();
   };
 
   const handleSelectBackupFile = async (
@@ -269,10 +287,14 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
           });
           return;
         }
-        rawJson = deobfuscateWithPassphrase(
-          parsed.payload,
-          importPassphrase.trim()
-        );
+        // New files (AES-256-GCM) carry an "encryption" block; old files used XOR
+        rawJson = parsed.encryption
+          ? await decryptBackup(
+              parsed.payload,
+              importPassphrase.trim(),
+              parsed.encryption
+            )
+          : deobfuscateWithPassphrase(parsed.payload, importPassphrase.trim());
       }
 
       const computedHash = await sha256Hex(rawJson);
@@ -418,7 +440,7 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
         <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="font-display font-semibold text-base text-slate-900">
-              Excel (.csv) &amp; Printable PDF Statement Downloads
+              Excel (.xlsx) &amp; Printable PDF Statement Downloads
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               Download formatted Excel spreadsheets or formal printable PDF statements across all ledgers, donor lists, and bank reconciliations
@@ -448,7 +470,7 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Excel (.csv)</span>
+                <span>Excel (.xlsx)</span>
               </button>
               <button
                 type="button"
@@ -485,7 +507,7 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Excel (.csv)</span>
+                <span>Excel (.xlsx)</span>
               </button>
               <button
                 type="button"
@@ -533,7 +555,7 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Excel (.csv)</span>
+                    <span>Excel (.xlsx)</span>
                   </button>
                   <button
                     type="button"
@@ -576,7 +598,7 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Excel (.csv)</span>
+                <span>Excel (.xlsx)</span>
               </button>
               <button
                 type="button"
@@ -715,11 +737,11 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
                 <button
                   type="button"
                   disabled={!canManageBackups}
-                  onClick={onResetToSeed}
+                  onClick={handleResetClick}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-slate-200 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset Sample Data</span>
+                  <span>Erase All Data &amp; Reset</span>
                 </button>
               </div>
 

@@ -10,6 +10,7 @@ import {
   RoleProfile,
   UserRole,
 } from '../types/system';
+import { buildXlsx } from './xlsx';
 
 export const ROLE_PROFILES: Record<UserRole, RoleProfile> = {
   management: {
@@ -301,6 +302,17 @@ export function computeChronologicalLedgers(
   let totalDebits = 0;
 
   const chronological: ComputedTransaction[] = sorted.map((txn) => {
+    // A backdated entry still waiting for Management approval is shown in the
+    // list, but it is not counted in any balance or total until it is approved.
+    if (txn.isBackdated && !txn.backdateApproved) {
+      return {
+        ...txn,
+        ledgerRunningBalance: ledgerRunning[txn.ledger] || 0,
+        overallRunningBalance: overallRunning,
+        channelRunningBalance: channelRunning[txn.channel] || 0,
+      };
+    }
+
     const delta = txn.type === 'Credit' ? txn.amountPkr : -txn.amountPkr;
     overallRunning += delta;
     ledgerRunning[txn.ledger] = (ledgerRunning[txn.ledger] || 0) + delta;
@@ -437,4 +449,129 @@ export function deobfuscateWithPassphrase(
     out[i] = bytes[i] ^ keyBytes[i % keyBytes.length];
   }
   return new TextDecoder().decode(out);
+}
+
+// ---------------------------------------------------------------------------
+// Backup encryption: AES-256-GCM, key derived from the passphrase with PBKDF2.
+// (The old XOR functions above are kept only so older backup files still restore.)
+// ---------------------------------------------------------------------------
+const PBKDF2_ITERATIONS = 310000;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(b64);
+  const out = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+async function deriveAesKey(
+  passphrase: string,
+  salt: Uint8Array<ArrayBuffer>,
+  iterations: number
+): Promise<CryptoKey> {
+  const material = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(passphrase),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+export interface BackupEncryptionInfo {
+  algorithm: 'AES-256-GCM';
+  kdf: 'PBKDF2-SHA256';
+  iterations: number;
+  salt: string; // base64
+  iv: string; // base64
+}
+
+export async function encryptBackup(
+  plainJson: string,
+  passphrase: string
+): Promise<{ payload: string; encryption: BackupEncryptionInfo }> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveAesKey(passphrase, salt, PBKDF2_ITERATIONS);
+  const cipher = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(plainJson)
+  );
+  return {
+    payload: bytesToBase64(new Uint8Array(cipher)),
+    encryption: {
+      algorithm: 'AES-256-GCM',
+      kdf: 'PBKDF2-SHA256',
+      iterations: PBKDF2_ITERATIONS,
+      salt: bytesToBase64(salt),
+      iv: bytesToBase64(iv),
+    },
+  };
+}
+
+// Throws if the passphrase is wrong or the file was changed (GCM checks integrity).
+export async function decryptBackup(
+  payload: string,
+  passphrase: string,
+  info: BackupEncryptionInfo
+): Promise<string> {
+  const key = await deriveAesKey(
+    passphrase,
+    base64ToBytes(info.salt),
+    info.iterations
+  );
+  const plain = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: base64ToBytes(info.iv) },
+    key,
+    base64ToBytes(payload)
+  );
+  return new TextDecoder().decode(plain);
+}
+
+// Real Excel (.xlsx) download. Falls back to CSV if the browser cannot build it.
+export function exportRowsToXlsx(
+  filename: string,
+  headers: string[],
+  rows: (string | number)[][]
+): void {
+  try {
+    // Sheet name from the file name: "bait-ul-noor-master-statement-2026-11-25.xlsx" -> "Master Statement"
+    const sheetName = filename
+      .replace(/\.xlsx$/i, '')
+      .replace(/^bait-ul-noor-/, '')
+      .replace(/-\d{4}-\d{2}-\d{2}$/, '')
+      .split('-')
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+
+    const bytes = buildXlsx(headers, rows, sheetName);
+    const blob = new Blob([bytes], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch {
+    exportRowsToCsv(filename.replace(/\.xlsx$/i, '.csv'), headers, rows);
+  }
 }

@@ -19,7 +19,7 @@ import {
   UserRole,
 } from '../types/system';
 import {
-  exportRowsToCsv,
+  exportRowsToXlsx,
   formatPkr,
   formatShortDate,
   getTodayIsoDate,
@@ -31,7 +31,7 @@ import {
   NON_CONVERSION_REASONS,
   PAYMENT_CHANNELS,
   STAFF_MEMBERS,
-} from '../utils/accounting';
+} from '../utils/accounts';
 import { PrintReportConfig } from './PrintStatementModal';
 
 interface LeadsCrmViewProps {
@@ -188,8 +188,8 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
   };
 
   const handleExportCsv = () => {
-    exportRowsToCsv(
-      `bait-ul-noor-donor-leads-${getTodayIsoDate()}.csv`,
+    exportRowsToXlsx(
+      `bait-ul-noor-donor-leads-${getTodayIsoDate()}.xlsx`,
       [
         'Lead ID',
         'Donor Name',
@@ -307,7 +307,7 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap shrink-0"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Export Excel (.csv)</span>
+              <span>Export Excel (.xlsx)</span>
             </button>
             <button
               type="button"

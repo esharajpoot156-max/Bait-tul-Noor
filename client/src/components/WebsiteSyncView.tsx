@@ -11,7 +11,7 @@ import {
   formatPkr,
   formatTimestamp,
   INCOME_FUND_TYPES,
-} from '../utils/accounting';
+} from '../utils/accounts';
 
 interface WebsiteSyncViewProps {
   syncEvents: WebsiteSyncEvent[];

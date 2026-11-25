@@ -5,6 +5,7 @@ import type {
   AuditLogEntry,
   DonorLead,
   IncomeFundType,
+  LeadSource,
   LedgerName,
   LedgerTransaction,
   PaymentChannel,
@@ -13,7 +14,7 @@ import type {
   SystemState,
   WebsiteSyncEvent,
 } from './types/system.ts';
-import { INITIAL_SYSTEM_STATE } from './data/seedData.ts';
+import { getStartingState } from './server/startState.ts';
 import {
   formatPkr,
   getTodayIsoDate,
@@ -38,6 +39,7 @@ import {
   asPositiveNumber,
   hasDangerousMongoKeys,
   resolveRole,
+  isAllowedIncomeFund,
   sanitizeReconciliationChannel,
   validateAssetPayload,
   validateLeadPayload,
@@ -52,6 +54,25 @@ import {
   loginHandler,
   meHandler,
 } from './server/auth.ts';
+
+// Next free number for IDs like LD-1001 / TXN-007. Uses the highest existing number,
+// so IDs never repeat even after records are removed or a backup is restored.
+function nextSeq(ids: string[], prefix: string, start: number): number {
+  let max = start - 1;
+  for (const id of ids) {
+    if (typeof id === 'string' && id.startsWith(prefix)) {
+      const n = parseInt(id.slice(prefix.length), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return max + 1;
+}
+
+// Voucher prefix from today's date, e.g. VCH-2611 for November 2026
+function voucherPrefix(): string {
+  const iso = new Date().toISOString();
+  return `VCH-${iso.slice(2, 4)}${iso.slice(5, 7)}`;
+}
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -83,6 +104,9 @@ app.use(
   })
 );
 
+// The public website endpoint only ever needs a tiny body
+app.use('/api/public', express.json({ limit: '10kb' }));
+
 app.use(express.json({ limit: '5mb' }));
 
 // Global NoSQL operator injection guard on request bodies
@@ -97,10 +121,135 @@ app.use('/api', (req, res, next) => {
 // Behind Render's proxy, trust the forwarded IP (used by login rate limiting)
 app.set('trust proxy', 1);
 
-// Every /api route needs a valid login token, except login and the website form endpoint
+// Every /api route needs a valid login token, except login and the public website inquiry
 app.use('/api', authenticate);
 app.post('/api/auth/login', loginHandler);
 app.get('/api/auth/me', meHandler);
+
+// ---------------------------------------------------------------------------
+// Public website inquiry (donation / contact / WhatsApp click-to-chat forms)
+// - needs no login, so it is deliberately limited:
+//   * it can ONLY create a "New Inquiry" lead, never a voucher or any money entry
+//   * it never returns CRM data, only { ok: true }
+//   * rate limited per IP and overall, with a hidden "website" field to catch bots
+// ---------------------------------------------------------------------------
+const PUBLIC_WINDOW_MS = 10 * 60 * 1000;
+const PUBLIC_MAX_PER_IP = 5;
+const PUBLIC_MAX_PER_HOUR = 200;
+const publicHitsByIp = new Map<string, number[]>();
+let publicHitsAll: number[] = [];
+
+function takePublicSlot(ip: string): boolean {
+  const now = Date.now();
+  publicHitsAll = publicHitsAll.filter((t) => now - t < 60 * 60 * 1000);
+  if (publicHitsAll.length >= PUBLIC_MAX_PER_HOUR) return false;
+
+  const recent = (publicHitsByIp.get(ip) || []).filter(
+    (t) => now - t < PUBLIC_WINDOW_MS
+  );
+  if (recent.length >= PUBLIC_MAX_PER_IP) {
+    publicHitsByIp.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
+  publicHitsByIp.set(ip, recent);
+  publicHitsAll.push(now);
+
+  if (publicHitsByIp.size > 5000) {
+    for (const [key, hits] of publicHitsByIp) {
+      if (!hits.some((t) => now - t < PUBLIC_WINDOW_MS)) publicHitsByIp.delete(key);
+    }
+  }
+  return true;
+}
+
+app.post('/api/public/inquiry', async (req, res) => {
+  try {
+    const body = req.body || {};
+
+    // Hidden trap field: real people never fill it. Pretend success so bots move on.
+    if (asCleanString(body.website, 200)) {
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (!takePublicSlot(req.ip || 'unknown')) {
+      res
+        .status(429)
+        .json({ error: 'Too many submissions. Please try again in a few minutes.' });
+      return;
+    }
+
+    const donorName = asCleanString(body.donorName ?? body.name, 120);
+    const phone = asCleanString(body.phone, 40);
+    const digits = phone.replace(/\D/g, '');
+    if (donorName.length < 2) {
+      res.status(400).json({ error: 'Please enter your name.' });
+      return;
+    }
+    if (!/^[+\d\s()-]+$/.test(phone) || digits.length < 10 || digits.length > 15) {
+      res.status(400).json({ error: 'Please enter a valid phone / WhatsApp number.' });
+      return;
+    }
+
+    const source: LeadSource =
+      body.submissionType === 'donation'
+        ? 'Website Donation Form'
+        : body.submissionType === 'whatsapp'
+          ? 'Direct WhatsApp'
+          : 'Website Contact Form';
+
+    const pledged = Math.min(asPositiveNumber(body.amountPkr, 0), 100_000_000);
+    const fundType: IncomeFundType = isAllowedIncomeFund(body.fundType)
+      ? body.fundType
+      : 'Atiyaat (Donations)';
+    const message = asCleanString(body.notes ?? body.message, 500);
+
+    const state = await readFullSystemState();
+    const nowIso = new Date().toISOString();
+    const todayIso = getTodayIsoDate();
+    const nextLeadId = `LD-${nextSeq(state.leads.map((l) => l.id), 'LD-', 1001)}`;
+
+    const newLead: DonorLead = {
+      id: nextLeadId,
+      donorName,
+      phone,
+      source,
+      inquiryDate: todayIso,
+      stage: 'New Inquiry',
+      fundInterest: fundType,
+      pledgedAmountPkr: pledged,
+      receivedAmountPkr: 0,
+      assignedTo: ROLE_PROFILES.followup.staffName,
+      followUpDate: todayIso,
+      followUpNote:
+        pledged > 0
+          ? `Website pledge of ${formatPkr(pledged)}. Payment NOT verified: confirm it in the bank/wallet statement before creating a voucher.`
+          : 'Incoming website inquiry; awaiting staff follow-up.',
+      notes:
+        (pledged > 0 ? '[Payment unverified - pledge only] ' : '') +
+        (message || `Incoming ${source} submission.`),
+      createdAt: nowIso,
+    };
+
+    const syncEvent: WebsiteSyncEvent = {
+      id: `SYN-${nextSeq(state.websiteSyncEvents.map((e) => e.id), 'SYN-', 1)}`,
+      timestamp: nowIso,
+      source,
+      donorName,
+      phone,
+      amountPkr: pledged > 0 ? pledged : undefined,
+      fundType,
+      leadId: nextLeadId,
+      status: 'Synced to CRM',
+    };
+
+    await Promise.all([insertLead(newLead), insertWebsiteSyncEvent(syncEvent)]);
+    res.status(201).json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Could not send your request. Please try again.' });
+  }
+});
 
 app.get('/api/health', async (_req, res) => {
   try {
@@ -141,7 +290,7 @@ app.post('/api/leads', async (req, res) => {
       return;
     }
     const state = await readFullSystemState();
-    const nextId = `LD-${1001 + state.leads.length}`;
+    const nextId = `LD-${nextSeq(state.leads.map((l) => l.id), 'LD-', 1001)}`;
     const newLead: DonorLead = {
       ...parsed.data,
       id: nextId,
@@ -242,9 +391,9 @@ app.post('/api/leads/:id/convert', async (req, res) => {
     const autoApproved = !isBackdated || role === 'management';
     const profile = ROLE_PROFILES[role];
 
-    const nextTxnNum = state.transactions.length + 1;
+    const nextTxnNum = nextSeq(state.transactions.map((t) => t.id), 'TXN-', 1);
     const nextTxnId = `TXN-${String(nextTxnNum).padStart(3, '0')}`;
-    const voucherNo = `VCH-2611-${String(nextTxnNum).padStart(3, '0')}`;
+    const voucherNo = `${voucherPrefix()}-${String(nextTxnNum).padStart(3, '0')}`;
 
     const newTxn: LedgerTransaction = {
       id: nextTxnId,
@@ -277,7 +426,7 @@ app.post('/api/leads/:id/convert', async (req, res) => {
     };
 
     const audit: AuditLogEntry = {
-      id: `AUD-${state.auditTrail.length + 1}`,
+      id: `AUD-${nextSeq(state.auditTrail.map((a) => a.id), 'AUD-', 1)}`,
       timestamp: nowIso,
       actorName: profile.staffName,
       actorRole: role,
@@ -321,9 +470,9 @@ app.post('/api/transactions', async (req, res) => {
     const autoApproved = !isBackdated || role === 'management';
     const profile = ROLE_PROFILES[role];
 
-    const nextNum = state.transactions.length + 1;
+    const nextNum = nextSeq(state.transactions.map((t) => t.id), 'TXN-', 1);
     const nextId = `TXN-${String(nextNum).padStart(3, '0')}`;
-    const voucherNo = `VCH-2611-${String(nextNum).padStart(3, '0')}`;
+    const voucherNo = `${voucherPrefix()}-${String(nextNum).padStart(3, '0')}`;
 
     const newTxn: LedgerTransaction = {
       id: nextId,
@@ -348,7 +497,7 @@ app.post('/api/transactions', async (req, res) => {
 
     const audit: AuditLogEntry | undefined = isBackdated
       ? {
-          id: `AUD-${state.auditTrail.length + 1}`,
+          id: `AUD-${nextSeq(state.auditTrail.map((a) => a.id), 'AUD-', 1)}`,
           timestamp: nowIso,
           actorName: profile.staffName,
           actorRole: role,
@@ -388,7 +537,7 @@ app.patch('/api/transactions/:id/approve-backdate', async (req, res) => {
 
     const profile = ROLE_PROFILES[role];
     const audit: AuditLogEntry = {
-      id: `AUD-${state.auditTrail.length + 1}`,
+      id: `AUD-${nextSeq(state.auditTrail.map((a) => a.id), 'AUD-', 1)}`,
       timestamp: new Date().toISOString(),
       actorName: profile.staffName,
       actorRole: role,
@@ -467,8 +616,8 @@ app.post('/api/assets', async (req, res) => {
     const state = await readFullSystemState();
     const asset: SocietyAsset = {
       ...parsed.data,
-      id: `AST-${String(state.assets.length + 1).padStart(2, '0')}`,
-      assetCode: `BN-AS-${String(state.assets.length + 1).padStart(3, '0')}`,
+      id: `AST-${String(nextSeq(state.assets.map((a) => a.id), 'AST-', 1)).padStart(2, '0')}`,
+      assetCode: `BN-AS-${String(nextSeq(state.assets.map((a) => a.id), 'AST-', 1)).padStart(3, '0')}`,
     };
     await insertAsset(asset);
     const updatedState = await readFullSystemState();
@@ -497,7 +646,7 @@ app.post('/api/ration', async (req, res) => {
     const state = await readFullSystemState();
     const item: RationStockItem = {
       ...parsed.data,
-      id: `RAT-${String(state.rationStock.length + 1).padStart(2, '0')}`,
+      id: `RAT-${String(nextSeq(state.rationStock.map((r) => r.id), 'RAT-', 1)).padStart(2, '0')}`,
     };
     await insertRationItem(item);
     const updatedState = await readFullSystemState();
@@ -524,7 +673,7 @@ app.post('/api/website-sync', async (req, res) => {
     const state = await readFullSystemState();
     const nowIso = new Date().toISOString();
     const todayIso = getTodayIsoDate();
-    const nextLeadId = `LD-${1001 + state.leads.length}`;
+    const nextLeadId = `LD-${nextSeq(state.leads.map((l) => l.id), 'LD-', 1001)}`;
     const source =
       submissionType === 'donation'
         ? 'Website Donation Form'
@@ -541,9 +690,9 @@ app.post('/api/website-sync', async (req, res) => {
     if (submissionType === 'donation' && amountPkr > 0 && body.channel) {
       const channel = (sanitizeReconciliationChannel(String(body.channel)) ||
         'JazzCash') as PaymentChannel;
-      const nextTxnNum = state.transactions.length + 1;
+      const nextTxnNum = nextSeq(state.transactions.map((t) => t.id), 'TXN-', 1);
       const nextTxnId = `TXN-${String(nextTxnNum).padStart(3, '0')}`;
-      const voucherNo = `VCH-2611-${String(nextTxnNum).padStart(3, '0')}`;
+      const voucherNo = `${voucherPrefix()}-${String(nextTxnNum).padStart(3, '0')}`;
       const targetLedger: LedgerName = inferDefaultLedgerForFund(fundType);
 
       const newLead: DonorLead = {
@@ -556,7 +705,7 @@ app.post('/api/website-sync', async (req, res) => {
         fundInterest: fundType,
         pledgedAmountPkr: amountPkr,
         receivedAmountPkr: amountPkr,
-        assignedTo: 'Asim Bhai',
+        assignedTo: ROLE_PROFILES.followup.staffName,
         followUpDate: todayIso,
         followUpNote: `Auto-synced website payment via ${channel}.`,
         notes: notes || 'Direct website online donation.',
@@ -584,7 +733,7 @@ app.post('/api/website-sync', async (req, res) => {
       };
 
       const syncEvent: WebsiteSyncEvent = {
-        id: `SYN-${state.websiteSyncEvents.length + 1}`,
+        id: `SYN-${nextSeq(state.websiteSyncEvents.map((e) => e.id), 'SYN-', 1)}`,
         timestamp: nowIso,
         source,
         donorName,
@@ -597,7 +746,7 @@ app.post('/api/website-sync', async (req, res) => {
       };
 
       const audit: AuditLogEntry = {
-        id: `AUD-${state.auditTrail.length + 1}`,
+        id: `AUD-${nextSeq(state.auditTrail.map((a) => a.id), 'AUD-', 1)}`,
         timestamp: nowIso,
         actorName: 'Website Integration',
         actorRole: 'accountant',
@@ -628,7 +777,7 @@ app.post('/api/website-sync', async (req, res) => {
       fundInterest: fundType,
       pledgedAmountPkr: amountPkr,
       receivedAmountPkr: 0,
-      assignedTo: 'Ayesha Siddiqui',
+      assignedTo: ROLE_PROFILES.followup.staffName,
       followUpDate: todayIso,
       followUpNote: 'Incoming inquiry synced; awaiting staff follow-up.',
       notes: notes || `Incoming ${source} submission.`,
@@ -636,7 +785,7 @@ app.post('/api/website-sync', async (req, res) => {
     };
 
     const syncEvent: WebsiteSyncEvent = {
-      id: `SYN-${state.websiteSyncEvents.length + 1}`,
+      id: `SYN-${nextSeq(state.websiteSyncEvents.map((e) => e.id), 'SYN-', 1)}`,
       timestamp: nowIso,
       source,
       donorName,
@@ -693,7 +842,7 @@ app.post('/api/backup/restore', async (req, res) => {
         : [],
       auditTrail: [
         {
-          id: `AUD-${(incoming.auditTrail?.length || 0) + 1}`,
+          id: `AUD-${nextSeq(Array.isArray(incoming.auditTrail) ? incoming.auditTrail.map((a) => a.id) : [], 'AUD-', 1)}`,
           timestamp: new Date().toISOString(),
           actorName: profile.staffName,
           actorRole: role,
@@ -722,7 +871,7 @@ app.post('/api/backup/reset', async (req, res) => {
       });
       return;
     }
-    await replaceFullSystemState(structuredClone(INITIAL_SYSTEM_STATE));
+    await replaceFullSystemState(getStartingState());
     const updatedState = await readFullSystemState();
     res.json({ state: updatedState });
   } catch {

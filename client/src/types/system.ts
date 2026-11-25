@@ -186,5 +186,13 @@ export interface BackupFilePayload {
   exportedBy: string;
   checksumSha256: string;
   encrypted: boolean;
-  payload: string; // JSON string or XOR/Base64 obfuscated encrypted payload
+  payload: string; // JSON string, or Base64 ciphertext when encrypted
+  // Present on version 2.0 encrypted backups (AES-256-GCM). Older version 1.0 files use XOR.
+  encryption?: {
+    algorithm: 'AES-256-GCM';
+    kdf: 'PBKDF2-SHA256';
+    iterations: number;
+    salt: string;
+    iv: string;
+  };
 }

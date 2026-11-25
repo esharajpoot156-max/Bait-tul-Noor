@@ -101,7 +101,8 @@ export function resolveRole(headerValue: unknown): UserRole {
   if (typeof headerValue === 'string' && ALLOWED_ROLES.has(headerValue as UserRole)) {
     return headerValue as UserRole;
   }
-  return 'management';
+  // Fail closed: if the role is missing, use the role with the fewest permissions
+  return 'followup';
 }
 
 export function asCleanString(value: unknown, maxLen = 400): string {
@@ -296,4 +297,8 @@ export function sanitizeReconciliationChannel(
   return ALLOWED_CHANNELS.has(channel as PaymentChannel)
     ? (channel as PaymentChannel)
     : null;
+}
+
+export function isAllowedIncomeFund(value: unknown): value is IncomeFundType {
+  return ALLOWED_INCOME_FUNDS.has(value as IncomeFundType);
 }

@@ -17,7 +17,7 @@ import {
   INCOME_FUND_TYPES,
   LEDGER_META,
   LEDGER_NAMES,
-} from '../utils/accounting';
+} from '../utils/accounts';
 
 interface DashboardViewProps {
   leads: DonorLead[];

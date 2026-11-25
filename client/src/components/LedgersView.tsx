@@ -23,7 +23,7 @@ import {
 } from '../types/system';
 import {
   EXPENSE_HEADS,
-  exportRowsToCsv,
+  exportRowsToXlsx,
   formatPkr,
   formatShortDate,
   formatTimestamp,
@@ -32,7 +32,7 @@ import {
   LEDGER_META,
   LEDGER_NAMES,
   PAYMENT_CHANNELS,
-} from '../utils/accounting';
+} from '../utils/accounts';
 import { PrintReportConfig } from './PrintStatementModal';
 
 interface LedgersViewProps {
@@ -197,8 +197,8 @@ export const LedgersView: React.FC<LedgersViewProps> = ({
       selectedLedger === 'All' || selectedLedger === 'Audit'
         ? 'Master-All-Ledgers'
         : selectedLedger.replace(/\s+/g, '-');
-    exportRowsToCsv(
-      `bait-ul-noor-${label}-${todayIso}.csv`,
+    exportRowsToXlsx(
+      `bait-ul-noor-${label}-${todayIso}.xlsx`,
       [
         'Transaction Date',
         'Backdated',
@@ -291,7 +291,7 @@ export const LedgersView: React.FC<LedgersViewProps> = ({
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap shrink-0"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Excel (.csv)</span>
+                  <span>Excel (.xlsx)</span>
                 </button>
                 <button
                   type="button"

@@ -10,7 +10,7 @@ import type {
   SystemState,
   WebsiteSyncEvent,
 } from '../types/system.ts';
-import { INITIAL_SYSTEM_STATE } from '../data/seedData.ts';
+import { getStartingState } from './startState.ts';
 
 export interface DatabaseStatus {
   storageMode: 'atlas' | 'preview-fallback';
@@ -36,7 +36,7 @@ let atlasConnectAttempted = false;
 let atlasError: string | undefined;
 
 // Preview fallback state when MONGODB_URI is not configured yet in Secrets
-let fallbackState: SystemState = structuredClone(INITIAL_SYSTEM_STATE);
+let fallbackState: SystemState = getStartingState();
 
 function stripMongoId<T extends object>(doc: T & { _id?: unknown }): T {
   const copy = { ...doc };
@@ -53,36 +53,35 @@ async function ensureSeededIfEmpty(db: Db): Promise<void> {
   const auditCol = db.collection<AuditLogEntry>('audit_trail');
   const syncCol = db.collection<WebsiteSyncEvent>('website_sync_events');
 
-  const [leadCount, txnCount] = await Promise.all([
-    leadsCol.countDocuments(),
-    txnsCol.countDocuments(),
-  ]);
+  const [leadCount, txnCount, recCount, assetCount, rationCount, auditCount, syncCount] =
+    await Promise.all([
+      leadsCol.countDocuments(),
+      txnsCol.countDocuments(),
+      recCol.countDocuments(),
+      assetsCol.countDocuments(),
+      rationCol.countDocuments(),
+      auditCol.countDocuments(),
+      syncCol.countDocuments(),
+    ]);
 
-  if (leadCount === 0 && txnCount === 0) {
-    if (INITIAL_SYSTEM_STATE.leads.length > 0) {
-      await leadsCol.insertMany(structuredClone(INITIAL_SYSTEM_STATE.leads));
-    }
-    if (INITIAL_SYSTEM_STATE.transactions.length > 0) {
-      await txnsCol.insertMany(structuredClone(INITIAL_SYSTEM_STATE.transactions));
-    }
-    if (INITIAL_SYSTEM_STATE.reconciliations.length > 0) {
-      await recCol.insertMany(structuredClone(INITIAL_SYSTEM_STATE.reconciliations));
-    }
-    if (INITIAL_SYSTEM_STATE.assets.length > 0) {
-      await assetsCol.insertMany(structuredClone(INITIAL_SYSTEM_STATE.assets));
-    }
-    if (INITIAL_SYSTEM_STATE.rationStock.length > 0) {
-      await rationCol.insertMany(structuredClone(INITIAL_SYSTEM_STATE.rationStock));
-    }
-    if (INITIAL_SYSTEM_STATE.auditTrail.length > 0) {
-      await auditCol.insertMany(structuredClone(INITIAL_SYSTEM_STATE.auditTrail));
-    }
-    if (INITIAL_SYSTEM_STATE.websiteSyncEvents.length > 0) {
-      await syncCol.insertMany(
-        structuredClone(INITIAL_SYSTEM_STATE.websiteSyncEvents)
-      );
-    }
+  const start = getStartingState();
+  const brandNewDatabase =
+    leadCount + txnCount + recCount + assetCount + rationCount + auditCount + syncCount === 0;
+
+  if (brandNewDatabase) {
+    // First ever run: load the starting data (clean, or demo if SEED_DEMO_DATA=true)
+    if (start.leads.length > 0) await leadsCol.insertMany(start.leads);
+    if (start.transactions.length > 0) await txnsCol.insertMany(start.transactions);
+    if (start.reconciliations.length > 0) await recCol.insertMany(start.reconciliations);
+    if (start.assets.length > 0) await assetsCol.insertMany(start.assets);
+    if (start.rationStock.length > 0) await rationCol.insertMany(start.rationStock);
+    if (start.auditTrail.length > 0) await auditCol.insertMany(start.auditTrail);
+    if (start.websiteSyncEvents.length > 0) await syncCol.insertMany(start.websiteSyncEvents);
+  } else if (recCount === 0 && start.reconciliations.length > 0) {
+    // Real data exists but the channel list is missing: put the channels back
+    await recCol.insertMany(start.reconciliations);
   }
+  // Note: an emptied leads/vouchers list no longer brings the sample data back by itself.
 
   await Promise.all([
     leadsCol.createIndex({ id: 1 }, { unique: true }),

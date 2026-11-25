@@ -19,7 +19,7 @@ import {
   computeChronologicalLedgers,
   formatPkr,
   ROLE_PROFILES,
-} from './utils/accounting';
+} from './utils/accounts';
 import {
   approveBackdateApi,
   AuthUser,

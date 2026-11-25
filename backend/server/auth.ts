@@ -58,7 +58,7 @@ function isPublicRoute(req: Request): boolean {
   // req.path is relative to the "/api" mount point
   return (
     req.method === 'POST' &&
-    (req.path === '/auth/login' || req.path === '/website-sync')
+    (req.path === '/auth/login' || req.path === '/public/inquiry')
   );
 }
 

@@ -10,7 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { ActiveTab } from '../types/system';
-import { ROLE_PROFILES } from '../utils/accounting';
+import { ROLE_PROFILES } from '../utils/accounts';
 import type { AuthUser } from '../utils/api';
 
 // Props received from the parent component
