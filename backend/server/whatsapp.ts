@@ -65,6 +65,7 @@ function verifyHandler(req: Request, res: Response): void {
     res.status(200).type('text/plain').send(challenge);
     return;
   }
+  console.warn('[whatsapp] Webhook verification failed: the verify token does not match WHATSAPP_VERIFY_TOKEN.');
   res.sendStatus(403);
 }
 
@@ -124,7 +125,10 @@ export async function processWhatsAppPayload(body: any): Promise<number> {
             digitsOf(l.phone).slice(-10) === last10 &&
             (l.stage === 'New Inquiry' || l.stage === 'Qualified')
         );
-        if (hasOpenLead) continue;
+        if (hasOpenLead) {
+          console.log('[whatsapp] Skipped: this number already has an open lead (New Inquiry / Qualified).');
+          continue;
+        }
 
         const referral = m.referral && typeof m.referral === 'object' ? m.referral : null;
         const source: LeadSource = referral ? 'Meta Ads (WhatsApp)' : 'Direct WhatsApp';
@@ -187,6 +191,7 @@ async function receiveHandler(req: Request, res: Response): Promise<void> {
   const secret = (process.env.WHATSAPP_APP_SECRET || '').trim();
   if (!secret) {
     // Never accept unsigned messages: without the secret the webhook stays switched off
+    console.warn('[whatsapp] Rejected: WHATSAPP_APP_SECRET is not set on this server.');
     res.status(503).json({ error: 'WhatsApp is not configured.' });
     return;
   }
@@ -194,18 +199,21 @@ async function receiveHandler(req: Request, res: Response): Promise<void> {
   const raw = (req as Request & { rawBody?: Buffer }).rawBody;
   const header = String(req.headers['x-hub-signature-256'] || '');
   if (!raw || !header.startsWith('sha256=')) {
+    console.warn('[whatsapp] Rejected: the request has no valid Meta signature header.');
     res.sendStatus(401);
     return;
   }
   const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
   const received = header.slice('sha256='.length).trim().toLowerCase();
   if (!safeEqual(received, expected)) {
+    console.warn('[whatsapp] Rejected: signature does not match. WHATSAPP_APP_SECRET is probably wrong (Meta > App settings > Basic > App secret).');
     res.sendStatus(401);
     return;
   }
 
   try {
-    await processWhatsAppPayload(req.body);
+    const created = await processWhatsAppPayload(req.body);
+    console.log(`[whatsapp] Webhook accepted: ${created} new lead(s) created.`);
     res.sendStatus(200);
   } catch (err) {
     console.error('[whatsapp] could not save an incoming message', err instanceof Error ? err.message : err);

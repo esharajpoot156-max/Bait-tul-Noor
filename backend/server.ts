@@ -76,6 +76,23 @@ function actorProfile(req: express.Request, role: UserRole): { staffName: string
   return { staffName: req.user?.staffName || ROLE_PROFILES[role].staffName };
 }
 
+// What data does this person get back from the server?
+//  - Management and Accountant: everything.
+//  - Follow-Up Staff: ONLY the leads assigned to them. No vouchers, balances, assets or audit trail.
+// To let Accountants see only their own leads too, remove 'accountant' from the first line.
+function stateForUser(state: SystemState, role: UserRole, staffName: string): SystemState {
+  if (role === 'management' || role === 'accountant') return state;
+  return {
+    leads: state.leads.filter((l) => l.assignedTo === staffName),
+    transactions: [],
+    reconciliations: [],
+    assets: [],
+    rationStock: [],
+    auditTrail: [],
+    websiteSyncEvents: [],
+  };
+}
+
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -271,13 +288,17 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-app.get('/api/state', async (_req, res) => {
+app.get('/api/state', async (req, res) => {
   try {
+    const role = resolveRole(req.headers['x-user-role']);
     const [state, dbStatus] = await Promise.all([
       readFullSystemState(),
       getDatabaseStatus(),
     ]);
-    res.json({ state, dbStatus });
+    res.json({
+      state: stateForUser(state, role, actorProfile(req, role).staffName),
+      dbStatus,
+    });
   } catch {
     res.status(500).json({ error: 'Failed to load system state.' });
   }
@@ -308,7 +329,12 @@ app.post('/api/leads', async (req, res) => {
       createdAt: new Date().toISOString(),
     };
     await insertLead(newLead);
-    const updatedState = await readFullSystemState();
+    const leadRole = resolveRole(req.headers['x-user-role']);
+    const updatedState = stateForUser(
+      await readFullSystemState(),
+      leadRole,
+      actorProfile(req, leadRole).staffName
+    );
     res.status(201).json({ lead: newLead, state: updatedState });
   } catch {
     res.status(500).json({ error: 'Failed to create donor inquiry.' });
@@ -339,7 +365,14 @@ app.put('/api/leads/:id', async (req, res) => {
       createdAt: existing.createdAt,
     };
     // Follow-Up Staff update follow-ups and notes only; money fields stay as they are
-    if (resolveRole(req.headers['x-user-role']) === 'followup') {
+    const leadRole = resolveRole(req.headers['x-user-role']);
+    const leadStaffName = actorProfile(req, leadRole).staffName;
+    if (leadRole === 'followup') {
+      // ...and only on leads that are assigned to them
+      if (existing.assignedTo !== leadStaffName) {
+        res.status(403).json({ error: 'This lead is assigned to another staff member.' });
+        return;
+      }
       if (
         updatedLead.stage === 'Converted / Donated' &&
         existing.stage !== 'Converted / Donated'
@@ -353,7 +386,11 @@ app.put('/api/leads/:id', async (req, res) => {
       updatedLead.linkedVoucherId = existing.linkedVoucherId;
     }
     await updateLeadById(leadId, updatedLead);
-    const updatedState = await readFullSystemState();
+    const updatedState = stateForUser(
+      await readFullSystemState(),
+      leadRole,
+      leadStaffName
+    );
     res.json({ lead: updatedLead, state: updatedState });
   } catch {
     res.status(500).json({ error: 'Failed to update donor lead.' });
