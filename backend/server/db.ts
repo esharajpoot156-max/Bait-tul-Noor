@@ -390,6 +390,36 @@ export async function insertWebsiteSyncEvent(
     .insertOne({ ...event });
 }
 
+// Which SystemState list is stored in which MongoDB collection
+const STATE_COLLECTIONS: { key: keyof SystemState; collection: string }[] = [
+  { key: 'leads', collection: 'leads' },
+  { key: 'transactions', collection: 'transactions' },
+  { key: 'reconciliations', collection: 'reconciliations' },
+  { key: 'assets', collection: 'assets' },
+  { key: 'rationStock', collection: 'ration_stock' },
+  { key: 'auditTrail', collection: 'audit_trail' },
+  { key: 'websiteSyncEvents', collection: 'website_sync_events' },
+];
+
+// Empties every collection, then inserts the given state, one collection at a time
+async function writeStateToDb(db: Db, state: SystemState): Promise<void> {
+  for (const { collection } of STATE_COLLECTIONS) {
+    await db.collection(collection).deleteMany({});
+  }
+  for (const { key, collection } of STATE_COLLECTIONS) {
+    const records = state[key] as unknown as Record<string, unknown>[];
+    if (records.length > 0) {
+      // structuredClone: insertMany adds "_id" to what it receives, so give it copies
+      await db.collection(collection).insertMany(structuredClone(records));
+    }
+  }
+}
+
+/**
+ * Replaces ALL data with nextState (used by Backup Restore and Reset).
+ * Safety net: the current data is read first. If anything fails half way, the old data is
+ * put back automatically, so a failed restore does not leave the society with an empty database.
+ */
 export async function replaceFullSystemState(
   nextState: SystemState
 ): Promise<void> {
@@ -399,60 +429,23 @@ export async function replaceFullSystemState(
     return;
   }
 
-  await Promise.all([
-    db.collection('leads').deleteMany({}),
-    db.collection('transactions').deleteMany({}),
-    db.collection('reconciliations').deleteMany({}),
-    db.collection('assets').deleteMany({}),
-    db.collection('ration_stock').deleteMany({}),
-    db.collection('audit_trail').deleteMany({}),
-    db.collection('website_sync_events').deleteMany({}),
-  ]);
+  // 1. Remember what is in the database right now
+  const snapshot = await readFullSystemState();
 
-  const ops: Promise<unknown>[] = [];
-  if (nextState.leads.length > 0) {
-    ops.push(db.collection('leads').insertMany(structuredClone(nextState.leads)));
+  try {
+    // 2. Replace it with the new data
+    await writeStateToDb(db, nextState);
+  } catch (err) {
+    // 3. Something failed: put the old data back
+    try {
+      await writeStateToDb(db, snapshot);
+    } catch (rollbackErr) {
+      console.error('[restore] Rollback failed:', rollbackErr);
+      throw new Error(
+        'Restore failed and the automatic rollback also failed. Do not make changes: contact the developer.'
+      );
+    }
+    console.error('[restore] Restore failed, previous data was put back:', err);
+    throw new Error('Restore failed. Your previous data was kept.');
   }
-  if (nextState.transactions.length > 0) {
-    ops.push(
-      db
-        .collection('transactions')
-        .insertMany(structuredClone(nextState.transactions))
-    );
-  }
-  if (nextState.reconciliations.length > 0) {
-    ops.push(
-      db
-        .collection('reconciliations')
-        .insertMany(structuredClone(nextState.reconciliations))
-    );
-  }
-  if (nextState.assets.length > 0) {
-    ops.push(
-      db.collection('assets').insertMany(structuredClone(nextState.assets))
-    );
-  }
-  if (nextState.rationStock.length > 0) {
-    ops.push(
-      db
-        .collection('ration_stock')
-        .insertMany(structuredClone(nextState.rationStock))
-    );
-  }
-  if (nextState.auditTrail.length > 0) {
-    ops.push(
-      db
-        .collection('audit_trail')
-        .insertMany(structuredClone(nextState.auditTrail))
-    );
-  }
-  if (nextState.websiteSyncEvents.length > 0) {
-    ops.push(
-      db
-        .collection('website_sync_events')
-        .insertMany(structuredClone(nextState.websiteSyncEvents))
-    );
-  }
-
-  await Promise.all(ops);
 }

@@ -8,6 +8,7 @@ import {
   FileSpreadsheet,
   LogOut,
   ShieldCheck,
+  UserCog,
 } from 'lucide-react';
 import { ActiveTab } from '../types/system';
 import { ROLE_PROFILES } from '../utils/accounts';
@@ -19,9 +20,12 @@ interface SidebarProps {
   onSelectTab: (tab: ActiveTab) => void;
   // The person who is logged in (their role decides which tabs they see)
   user: AuthUser;
+  onOpenStaffModal: () => void;
   onLogout: () => void;
   pendingBackdateCount: number;
   newInquiriesCount: number;
+  // Open leads whose follow-up date is today or overdue
+  followUpsDueCount: number;
 }
 
 // Navigation menu items (id, label and icon)
@@ -42,18 +46,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onSelectTab,
   user,
+  onOpenStaffModal,
   onLogout,
   pendingBackdateCount,
   newInquiriesCount,
+  followUpsDueCount,
 }) => {
   // Becomes true if the logo image fails to load, so the "BN" fallback is shown
   const [logoFailed, setLogoFailed] = React.useState(false);
   const profile = ROLE_PROFILES[user.role];
-  // Follow-Up Staff only work with donor leads, so they only see that tab
+  // Follow-Up Staff only work with donor leads, so they only see that tab.
+  // The Website & Meta Sync simulator is for Management only (the server blocks everyone else).
   const visibleNavItems =
     user.role === 'followup'
       ? NAV_ITEMS.filter((item) => item.id === 'leads')
-      : NAV_ITEMS;
+      : user.role === 'management'
+        ? NAV_ITEMS
+        : NAV_ITEMS.filter((item) => item.id !== 'website');
 
   return (
     <aside className="no-print w-full lg:w-64 shrink-0 bg-[#08241C] text-emerald-50 border-b lg:border-b-0 lg:border-r border-emerald-950 flex flex-col justify-between">
@@ -120,23 +129,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   />
                   <span>{item.label}</span>
                 </span>
-                {countText && (
-                  <span
-                    className={`font-mono tabular-nums text-xs ${
-                      isActive ? 'text-emerald-100' : 'text-emerald-300/80'
-                    }`}
-                  >
-                    {countText}
-                  </span>
-                )}
+                <span className="flex items-center gap-1.5">
+                  {/* Amber badge: follow-ups due today or overdue (Leads tab only) */}
+                  {item.id === 'leads' && followUpsDueCount > 0 && (
+                    <span
+                      title={`${followUpsDueCount} follow-up${followUpsDueCount === 1 ? '' : 's'} due`}
+                      className="px-1.5 py-0.5 rounded-full bg-amber-400 text-amber-950 font-mono tabular-nums text-[10px] font-semibold"
+                    >
+                      {followUpsDueCount} due
+                    </span>
+                  )}
+                  {countText && (
+                    <span
+                      className={`font-mono tabular-nums text-xs ${
+                        isActive ? 'text-emerald-100' : 'text-emerald-300/80'
+                      }`}
+                    >
+                      {countText}
+                    </span>
+                  )}
+                </span>
               </button>
             );
           })}
         </nav>
       </div>
 
-      {/* Role switcher + current user info */}
-      {/* Signed-in user + logout */}
+      {/* Signed-in user + staff management + logout */}
       <div className="p-4 border-t border-white/10 bg-black/15">
         <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-200/90 mb-2">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
@@ -153,10 +172,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </p>
         </div>
 
+        {user.role === 'management' && (
+          <button
+            type="button"
+            onClick={onOpenStaffModal}
+            className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-white/10 hover:bg-white/15 text-xs font-medium text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
+            <UserCog className="w-3.5 h-3.5 shrink-0" />
+            <span>Manage Staff Accounts</span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onLogout}
-          className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md border border-white/15 text-xs font-medium text-emerald-50 hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md border border-white/15 text-xs font-medium text-emerald-50 hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
         >
           <LogOut className="w-3.5 h-3.5 shrink-0" />
           <span>Log out</span>

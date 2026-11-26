@@ -33,11 +33,14 @@ import {
   STAFF_MEMBERS,
 } from '../utils/accounts';
 import { PrintReportConfig } from './PrintStatementModal';
+import { FollowUpReminders } from './FollowUpReminders';
 
 interface LeadsCrmViewProps {
   leads: DonorLead[];
   currentRole: UserRole;
   currentStaffName: string;
+  // Real staff names from the staff accounts (for the "Assigned to" lists)
+  staffOptions?: string[];
   onAddLead: (lead: Omit<DonorLead, 'id' | 'createdAt'>) => void;
   onUpdateLead: (lead: DonorLead) => void;
   onConvertLeadWithVoucher: (params: {
@@ -54,10 +57,14 @@ interface LeadsCrmViewProps {
 
 type CrmSubView = 'board' | 'table' | 'analytics';
 
+// Stable empty list (a new [] on every render would re-run the staff list calculation)
+const NO_STAFF: string[] = [];
+
 export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
   leads,
   currentRole,
   currentStaffName,
+  staffOptions = NO_STAFF,
   onAddLead,
   onUpdateLead,
   onConvertLeadWithVoucher,
@@ -81,11 +88,22 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
   const [newInquiryDate, setNewInquiryDate] = useState(getTodayIsoDate());
   const [newFund, setNewFund] = useState<IncomeFundType>('Zakaat');
   const [newPledged, setNewPledged] = useState('25000');
-  const [newAssignedTo, setNewAssignedTo] = useState(
-    STAFF_MEMBERS.includes(currentStaffName)
-      ? currentStaffName
-      : STAFF_MEMBERS[0]
-  );
+  // Names shown in every "Assigned to" list and in the assignee filter:
+  //  - the real staff accounts (or the old built-in names if the list could not load)
+  //  - plus anyone already assigned to an existing lead, so old leads never lose their assignee
+  //  - plus the logged-in person
+  const staffList = useMemo(() => {
+    const base = staffOptions.length > 0 ? staffOptions : STAFF_MEMBERS;
+    const names = new Set<string>(base);
+    leads.forEach((l) => {
+      if (l.assignedTo) names.add(l.assignedTo);
+    });
+    if (currentStaffName) names.add(currentStaffName);
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [staffOptions, leads, currentStaffName]);
+
+  // New leads are assigned to the logged-in person by default
+  const [newAssignedTo, setNewAssignedTo] = useState(currentStaffName);
   const [newFollowUpDate, setNewFollowUpDate] = useState(getTodayIsoDate());
   const [newNotes, setNewNotes] = useState('');
 
@@ -261,6 +279,14 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
 
   return (
     <div className="space-y-5">
+      {/* Follow-up reminders: leads whose follow-up date is today or overdue */}
+      <FollowUpReminders
+        leads={leads}
+        currentStaffName={currentStaffName}
+        onOpenLead={setEditingLead}
+        onUpdateLead={onUpdateLead}
+      />
+
       {/* Toolbar */}
       <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -383,7 +409,7 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
               className="px-3 py-2 text-xs border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-800/30"
             >
               <option value="All">All Staff Assignees</option>
-              {STAFF_MEMBERS.map((m) => (
+              {staffList.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
@@ -875,7 +901,7 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
                     onChange={(e) => setNewAssignedTo(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-md bg-white"
                   >
-                    {STAFF_MEMBERS.map((m) => (
+                    {staffList.map((m) => (
                       <option key={m} value={m}>
                         {m}
                       </option>
@@ -993,7 +1019,7 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
                     }
                     className="w-full px-3 py-2 border border-slate-200 rounded-md bg-white"
                   >
-                    {STAFF_MEMBERS.map((m) => (
+                    {staffList.map((m) => (
                       <option key={m} value={m}>
                         {m}
                       </option>

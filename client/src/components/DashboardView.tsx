@@ -38,6 +38,8 @@ interface DashboardViewProps {
   rationStock: RationStockItem[];
   websiteSyncEvents: WebsiteSyncEvent[];
   onNavigateTab: (tab: ActiveTab) => void;
+  // Only Management can open the Website & Meta Sync simulator (default: hidden)
+  canTestSync?: boolean;
   onSelectLedgerFromDashboard: (ledger: LedgerName) => void;
 }
 
@@ -54,6 +56,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   rationStock,
   websiteSyncEvents,
   onNavigateTab,
+  canTestSync = false,
   onSelectLedgerFromDashboard,
 }) => {
   const [hoveredLedger, setHoveredLedger] = useState<LedgerName | null>(null);
@@ -534,13 +537,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="text-xs font-medium text-slate-700">
                 Recent Website &amp; Meta WhatsApp Sync Events
               </span>
-              <button
-                type="button"
-                onClick={() => onNavigateTab('website')}
-                className="text-xs text-emerald-900 font-medium hover:underline"
-              >
-                Test Live Sync
-              </button>
+              {canTestSync && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('website')}
+                  className="text-xs text-emerald-900 font-medium hover:underline"
+                >
+                  Test Live Sync
+                </button>
+              )}
             </div>
             <div className="divide-y divide-slate-100">
               {websiteSyncEvents.slice(0, 4).map((ev) => (

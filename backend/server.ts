@@ -12,9 +12,12 @@ import type {
   RationStockItem,
   SocietyAsset,
   SystemState,
+  UserRole,
   WebsiteSyncEvent,
 } from './types/system.ts';
 import { getStartingState } from './server/startState.ts';
+import { nextSeq } from './server/ids.ts';
+import { registerWhatsAppRoutes, whatsappRawParser } from './server/whatsapp.ts';
 import {
   formatPkr,
   getTodayIsoDate,
@@ -45,33 +48,32 @@ import {
   validateLeadPayload,
   validateRationPayload,
   validateReconciliationPayload,
+  validateBackupState,
   validateTransactionPayload,
 } from './server/validation.ts';
 import {
   assertAuthConfig,
   authenticate,
+  createUserHandler,
   ensureDefaultUsers,
+  listAssigneesHandler,
+  listUsersHandler,
   loginHandler,
   meHandler,
+  toggleUserStatusHandler,
 } from './server/auth.ts';
-
-// Next free number for IDs like LD-1001 / TXN-007. Uses the highest existing number,
-// so IDs never repeat even after records are removed or a backup is restored.
-function nextSeq(ids: string[], prefix: string, start: number): number {
-  let max = start - 1;
-  for (const id of ids) {
-    if (typeof id === 'string' && id.startsWith(prefix)) {
-      const n = parseInt(id.slice(prefix.length), 10);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
-  }
-  return max + 1;
-}
 
 // Voucher prefix from today's date, e.g. VCH-2611 for November 2026
 function voucherPrefix(): string {
   const iso = new Date().toISOString();
   return `VCH-${iso.slice(2, 4)}${iso.slice(5, 7)}`;
+}
+
+// Who is performing the action? Use the REAL logged-in user's name (from the verified token),
+// and only fall back to the generic role name (e.g. "Asim Bhai") if the account has no name.
+// This keeps vouchers and the audit trail accurate once real staff accounts exist.
+function actorProfile(req: express.Request, role: UserRole): { staffName: string } {
+  return { staffName: req.user?.staffName || ROLE_PROFILES[role].staffName };
 }
 
 const app = express();
@@ -107,6 +109,9 @@ app.use(
 // The public website endpoint only ever needs a tiny body
 app.use('/api/public', express.json({ limit: '10kb' }));
 
+// WhatsApp webhook: keeps the raw bytes so Meta's signature can be checked
+app.use('/api/webhooks/whatsapp', whatsappRawParser);
+
 app.use(express.json({ limit: '5mb' }));
 
 // Global NoSQL operator injection guard on request bodies
@@ -125,6 +130,10 @@ app.set('trust proxy', 1);
 app.use('/api', authenticate);
 app.post('/api/auth/login', loginHandler);
 app.get('/api/auth/me', meHandler);
+app.get('/api/auth/assignees', listAssigneesHandler); // names for the lead "Assigned to" list
+app.get('/api/auth/users', listUsersHandler);
+app.post('/api/auth/users', createUserHandler);
+app.patch('/api/auth/users/:username/status', toggleUserStatusHandler);
 
 // ---------------------------------------------------------------------------
 // Public website inquiry (donation / contact / WhatsApp click-to-chat forms)
@@ -162,6 +171,8 @@ function takePublicSlot(ip: string): boolean {
   }
   return true;
 }
+
+registerWhatsAppRoutes(app);
 
 app.post('/api/public/inquiry', async (req, res) => {
   try {
@@ -389,7 +400,7 @@ app.post('/api/leads/:id/convert', async (req, res) => {
     const todayIso = getTodayIsoDate();
     const isBackdated = txnValidation.data.transactionDate < todayIso;
     const autoApproved = !isBackdated || role === 'management';
-    const profile = ROLE_PROFILES[role];
+    const profile = actorProfile(req, role);
 
     const nextTxnNum = nextSeq(state.transactions.map((t) => t.id), 'TXN-', 1);
     const nextTxnId = `TXN-${String(nextTxnNum).padStart(3, '0')}`;
@@ -468,7 +479,7 @@ app.post('/api/transactions', async (req, res) => {
     const todayIso = getTodayIsoDate();
     const isBackdated = parsed.data.transactionDate < todayIso;
     const autoApproved = !isBackdated || role === 'management';
-    const profile = ROLE_PROFILES[role];
+    const profile = actorProfile(req, role);
 
     const nextNum = nextSeq(state.transactions.map((t) => t.id), 'TXN-', 1);
     const nextId = `TXN-${String(nextNum).padStart(3, '0')}`;
@@ -535,7 +546,7 @@ app.patch('/api/transactions/:id/approve-backdate', async (req, res) => {
       return;
     }
 
-    const profile = ROLE_PROFILES[role];
+    const profile = actorProfile(req, role);
     const audit: AuditLogEntry = {
       id: `AUD-${nextSeq(state.auditTrail.map((a) => a.id), 'AUD-', 1)}`,
       timestamp: new Date().toISOString(),
@@ -577,7 +588,7 @@ app.put('/api/reconciliations/:channel', async (req, res) => {
       return;
     }
 
-    const profile = ROLE_PROFILES[role];
+    const profile = actorProfile(req, role);
     const ok = await updateReconciliationRecord(
       channel,
       parsed.statementBalancePkr,
@@ -658,6 +669,17 @@ app.post('/api/ration', async (req, res) => {
 
 app.post('/api/website-sync', async (req, res) => {
   try {
+    // This route is the in-dashboard "simulator". It can create a Credit voucher straight
+    // away, so only Management may use it. Real website visitors use /api/public/inquiry,
+    // which can only create a "New Inquiry" lead and never any money entry.
+    const role = resolveRole(req.headers['x-user-role']);
+    if (role !== 'management') {
+      res.status(403).json({
+        error: 'Only Management / Admin can use the website sync simulator.',
+      });
+      return;
+    }
+
     const body = req.body || {};
     const submissionType =
       body.submissionType === 'donation' || body.submissionType === 'contact'
@@ -815,34 +837,25 @@ app.post('/api/backup/restore', async (req, res) => {
     }
 
     const body = req.body || {};
-    const incoming = body.state as SystemState | undefined;
-    if (
-      !incoming ||
-      !Array.isArray(incoming.leads) ||
-      !Array.isArray(incoming.transactions) ||
-      !Array.isArray(incoming.reconciliations)
-    ) {
-      res.status(400).json({ error: 'Invalid backup state payload.' });
+
+    // Check EVERY record in the backup first. Nothing in the database is touched
+    // unless the whole backup is valid.
+    const checked = validateBackupState(body.state);
+    if (!checked.ok) {
+      res.status(400).json({ error: `Invalid backup: ${checked.error}` });
       return;
     }
+    const incoming = checked.state;
 
-    const profile = ROLE_PROFILES[role];
+    const profile = actorProfile(req, role);
     const actorNote = asCleanString(body.actorNote, 300) || 'Backup restored';
 
     const nextState: SystemState = {
-      leads: incoming.leads,
-      transactions: incoming.transactions,
-      reconciliations: incoming.reconciliations,
-      assets: Array.isArray(incoming.assets) ? incoming.assets : [],
-      rationStock: Array.isArray(incoming.rationStock)
-        ? incoming.rationStock
-        : [],
-      websiteSyncEvents: Array.isArray(incoming.websiteSyncEvents)
-        ? incoming.websiteSyncEvents
-        : [],
+      ...incoming,
+      // Add one audit entry saying who restored the backup, on top of the restored history
       auditTrail: [
         {
-          id: `AUD-${nextSeq(Array.isArray(incoming.auditTrail) ? incoming.auditTrail.map((a) => a.id) : [], 'AUD-', 1)}`,
+          id: `AUD-${nextSeq(incoming.auditTrail.map((a) => a.id), 'AUD-', 1)}`,
           timestamp: new Date().toISOString(),
           actorName: profile.staffName,
           actorRole: role,
@@ -850,15 +863,20 @@ app.post('/api/backup/restore', async (req, res) => {
           targetRef: 'FULL-BACKUP',
           details: actorNote,
         },
-        ...(Array.isArray(incoming.auditTrail) ? incoming.auditTrail : []),
+        ...incoming.auditTrail,
       ],
     };
 
     await replaceFullSystemState(nextState);
     const updatedState = await readFullSystemState();
     res.json({ state: updatedState });
-  } catch {
-    res.status(500).json({ error: 'Failed to restore backup.' });
+  } catch (err) {
+    // replaceFullSystemState gives a clear message ("...previous data was kept")
+    const message =
+      err instanceof Error && err.message.startsWith('Restore failed')
+        ? err.message
+        : 'Failed to restore backup.';
+    res.status(500).json({ error: message });
   }
 });
 

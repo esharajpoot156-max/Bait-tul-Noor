@@ -29,9 +29,11 @@ export interface DatabaseHealth {
 // The logged-in user, as returned by the backend login route
 export interface AuthUser {
   username: string;
+  email?: string;
   role: UserRole;
   staffName: string;
   title: string;
+  active?: boolean;
 }
 
 // Backend address. Empty in development (the Vite proxy forwards /api to the backend).
@@ -77,8 +79,6 @@ async function apiRequest<T>(
   url: string,
   options: {
     method?: string;
-    // Kept so existing calls still compile. The backend now reads the role
-    // from the login token, so this value is no longer sent.
     role?: UserRole;
     body?: unknown;
     isLogin?: boolean;
@@ -100,7 +100,6 @@ async function apiRequest<T>(
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    // Session ended: forget the token and show the login screen
     if (res.status === 401 && !options.isLogin) {
       clearStoredToken();
       unauthorizedHandler?.();
@@ -110,7 +109,7 @@ async function apiRequest<T>(
   return data as T;
 }
 
-// ---- Authentication ----
+// ---- Authentication & Staff Accounts ----
 
 export async function loginApi(
   username: string,
@@ -124,11 +123,40 @@ export async function loginApi(
   return data.user;
 }
 
-// Restores the session after a page refresh (null when nobody is logged in)
 export async function fetchCurrentUserApi(): Promise<AuthUser | null> {
   if (!getStoredToken()) return null;
   const data = await apiRequest<{ user: AuthUser }>('/api/auth/me');
   return data.user;
+}
+
+export async function fetchUsersApi(): Promise<{ users: AuthUser[] }> {
+  return apiRequest('/api/auth/users');
+}
+
+export async function createStaffUserApi(payload: {
+  staffName: string;
+  email: string;
+  title?: string;
+  role: UserRole;
+  password: string;
+}): Promise<{ user: AuthUser; users: AuthUser[] }> {
+  return apiRequest('/api/auth/users', { method: 'POST', body: payload });
+}
+
+export async function toggleStaffUserStatusApi(
+  username: string,
+  active: boolean
+): Promise<{ users: AuthUser[] }> {
+  return apiRequest(`/api/auth/users/${encodeURIComponent(username)}/status`, {
+    method: 'PATCH',
+    body: { active },
+  });
+}
+
+// Names of all active staff, used for the "Assigned to" lists on leads.
+// Every logged-in role may call this (the full user list stays Management-only).
+export async function fetchAssigneesApi(): Promise<{ assignees: string[] }> {
+  return apiRequest('/api/auth/assignees');
 }
 
 export async function fetchInitialSystemState(): Promise<{

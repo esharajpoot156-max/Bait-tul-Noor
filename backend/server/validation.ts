@@ -9,6 +9,7 @@ import type {
   PaymentChannel,
   RationStockItem,
   SocietyAsset,
+  SystemState,
   TransactionType,
   UserRole,
 } from '../types/system.ts';
@@ -301,4 +302,168 @@ export function sanitizeReconciliationChannel(
 
 export function isAllowedIncomeFund(value: unknown): value is IncomeFundType {
   return ALLOWED_INCOME_FUNDS.has(value as IncomeFundType);
+}
+
+// ---------------------------------------------------------------------------
+// Backup restore: check EVERY record before anything in the database is touched
+// ---------------------------------------------------------------------------
+
+const MAX_RECORDS_PER_COLLECTION = 50_000;
+
+type BackupCheck =
+  | { ok: true; state: SystemState }
+  | { ok: false; error: string };
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function isNonEmptyString(v: unknown, max = 200): v is string {
+  return typeof v === 'string' && v.trim().length > 0 && v.length <= max;
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+// Removes MongoDB's internal "_id" so restored records get fresh ones
+function withoutMongoId<T>(record: T): T {
+  const copy = { ...(record as Record<string, unknown>) };
+  delete copy._id;
+  return copy as T;
+}
+
+// Checks one list: it must be an array, every item an object with a unique "id" (or the
+// given key), and every item must pass `checkItem` (which returns an error text or null).
+function checkCollection<T>(
+  label: string,
+  list: unknown,
+  idKey: string,
+  checkItem: (item: Record<string, unknown>) => string | null
+): { ok: true; items: T[] } | { ok: false; error: string } {
+  if (!Array.isArray(list)) {
+    return { ok: false, error: `${label}: must be a list.` };
+  }
+  if (list.length > MAX_RECORDS_PER_COLLECTION) {
+    return { ok: false, error: `${label}: too many records (max ${MAX_RECORDS_PER_COLLECTION}).` };
+  }
+  const seen = new Set<string>();
+  const items: T[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    const where = `${label} #${i + 1}`;
+    if (!isPlainObject(item)) {
+      return { ok: false, error: `${where}: not a valid record.` };
+    }
+    const id = item[idKey];
+    if (!isNonEmptyString(id, 80)) {
+      return { ok: false, error: `${where}: missing "${idKey}".` };
+    }
+    if (seen.has(id)) {
+      return { ok: false, error: `${where} (${id}): duplicate "${idKey}".` };
+    }
+    seen.add(id);
+    const problem = checkItem(item);
+    if (problem) {
+      return { ok: false, error: `${where} (${id}): ${problem}` };
+    }
+    items.push(withoutMongoId(item) as T);
+  }
+  return { ok: true, items };
+}
+
+export function validateBackupState(raw: unknown): BackupCheck {
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: 'Backup data is not valid.' };
+  }
+
+  const leads = checkCollection<DonorLead>('Lead', raw.leads, 'id', (l) => {
+    if (!isNonEmptyString(l.donorName, 120)) return 'donor name is missing.';
+    if (typeof l.phone !== 'string') return 'phone is missing.';
+    if (!ALLOWED_LEAD_STAGES.has(l.stage as LeadStage)) return 'invalid stage.';
+    if (!ALLOWED_LEAD_SOURCES.has(l.source as LeadSource)) return 'invalid source.';
+    if (!isFiniteNumber(l.pledgedAmountPkr) || l.pledgedAmountPkr < 0) return 'invalid pledged amount.';
+    if (!isFiniteNumber(l.receivedAmountPkr) || l.receivedAmountPkr < 0) return 'invalid received amount.';
+    return null;
+  });
+  if (!leads.ok) return leads;
+
+  const transactions = checkCollection<SystemState['transactions'][number]>(
+    'Voucher',
+    raw.transactions,
+    'id',
+    (t) => {
+      if (!isNonEmptyString(t.voucherNo, 60)) return 'voucher number is missing.';
+      if (!isValidIsoDate(t.transactionDate)) return 'invalid transaction date.';
+      if (!isNonEmptyString(t.systemEntryTimestamp, 60)) return 'entry timestamp is missing.';
+      if (!ALLOWED_TXN_TYPES.has(t.type as TransactionType)) return 'invalid type.';
+      if (!ALLOWED_LEDGERS.has(t.ledger as LedgerName)) return 'invalid ledger.';
+      if (!ALLOWED_CHANNELS.has(t.channel as PaymentChannel)) return 'invalid channel.';
+      const categoryOk =
+        t.type === 'Credit'
+          ? ALLOWED_INCOME_FUNDS.has(t.category as IncomeFundType)
+          : ALLOWED_EXPENSE_HEADS.has(t.category as ExpenseHead);
+      if (!categoryOk) return 'invalid account head / fund category.';
+      if (!isFiniteNumber(t.amountPkr) || t.amountPkr <= 0) return 'amount must be greater than zero.';
+      if (typeof t.donorOrPayee !== 'string') return 'donor / payee is missing.';
+      return null;
+    }
+  );
+  if (!transactions.ok) return transactions;
+
+  const reconciliations = checkCollection<ChannelReconciliation>(
+    'Channel',
+    raw.reconciliations,
+    'channel',
+    (r) => {
+      if (!ALLOWED_CHANNELS.has(r.channel as PaymentChannel)) return 'invalid channel.';
+      if (!isFiniteNumber(r.statementBalancePkr)) return 'invalid statement balance.';
+      return null;
+    }
+  );
+  if (!reconciliations.ok) return reconciliations;
+
+  // The lists below are optional in older backups: a missing list means "empty"
+  const assets = checkCollection<SocietyAsset>('Asset', raw.assets ?? [], 'id', (a) => {
+    if (!isNonEmptyString(a.name, 140)) return 'name is missing.';
+    if (!isFiniteNumber(a.quantity) || !isFiniteNumber(a.unitValuePkr)) return 'invalid quantity or value.';
+    return null;
+  });
+  if (!assets.ok) return assets;
+
+  const rationStock = checkCollection<RationStockItem>('Ration item', raw.rationStock ?? [], 'id', (r) => {
+    if (!isNonEmptyString(r.itemName, 140)) return 'item name is missing.';
+    if (!isFiniteNumber(r.quantity)) return 'invalid quantity.';
+    return null;
+  });
+  if (!rationStock.ok) return rationStock;
+
+  const auditTrail = checkCollection<SystemState['auditTrail'][number]>(
+    'Audit entry',
+    raw.auditTrail ?? [],
+    'id',
+    (a) => (typeof a.timestamp === 'string' ? null : 'timestamp is missing.')
+  );
+  if (!auditTrail.ok) return auditTrail;
+
+  const websiteSyncEvents = checkCollection<SystemState['websiteSyncEvents'][number]>(
+    'Website sync event',
+    raw.websiteSyncEvents ?? [],
+    'id',
+    (e) => (typeof e.timestamp === 'string' ? null : 'timestamp is missing.')
+  );
+  if (!websiteSyncEvents.ok) return websiteSyncEvents;
+
+  return {
+    ok: true,
+    state: {
+      leads: leads.items,
+      transactions: transactions.items,
+      reconciliations: reconciliations.items,
+      assets: assets.items,
+      rationStock: rationStock.items,
+      auditTrail: auditTrail.items,
+      websiteSyncEvents: websiteSyncEvents.items,
+    },
+  };
 }

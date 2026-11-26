@@ -18,7 +18,6 @@ import { INITIAL_SYSTEM_STATE } from './data/seedData';
 import {
   computeChronologicalLedgers,
   formatPkr,
-  ROLE_PROFILES,
 } from './utils/accounts';
 import {
   approveBackdateApi,
@@ -31,6 +30,7 @@ import {
   createTransactionApi,
   DatabaseHealth,
   fetchCurrentUserApi,
+  fetchAssigneesApi,
   fetchDatabaseHealth,
   fetchInitialSystemState,
   getStoredToken,
@@ -43,8 +43,10 @@ import {
 } from './utils/api';
 import { LoginScreen } from './components/LoginScreen';
 import { Sidebar } from './components/Sidebar';
+import { StaffAccessModal } from './components/StaffAccessModal';
 import { DashboardView } from './components/DashboardView';
 import { LeadsCrmView } from './components/LeadsCrmView';
+import { countDueFollowUps } from './components/FollowUpReminders';
 import { LedgersView } from './components/LedgersView';
 import { ChannelsAssetsView } from './components/ChannelsAssetsView';
 import { WebsiteSyncView } from './components/WebsiteSyncView';
@@ -113,6 +115,9 @@ function Workspace({
   const [printConfig, setPrintConfig] = useState<PrintReportConfig | null>(
     null
   );
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
+  // Names that leads can be assigned to (all active staff accounts)
+  const [assignees, setAssignees] = useState<string[]>([]);
 
   const loadFromServer = useCallback(async () => {
     try {
@@ -129,6 +134,13 @@ function Workspace({
     } finally {
       setLoadingInitial(false);
     }
+  }, []);
+
+  // Load the staff names for the "Assigned to" lists (failure is harmless: the list stays empty)
+  useEffect(() => {
+    fetchAssigneesApi()
+      .then((res) => setAssignees(res.assignees))
+      .catch(() => setAssignees([]));
   }, []);
 
   useEffect(() => {
@@ -163,7 +175,12 @@ function Workspace({
     [systemState.leads]
   );
 
-  const activeProfile = ROLE_PROFILES[currentRole];
+  // Open leads whose follow-up date is today or overdue (shown as a badge in the Sidebar)
+  const followUpsDueCount = useMemo(
+    () => countDueFollowUps(systemState.leads),
+    [systemState.leads]
+  );
+
 
   const runMutation = async (fn: () => Promise<{ state: SystemState }>) => {
     setErrorBanner(null);
@@ -291,9 +308,11 @@ function Workspace({
           activeTab={activeTab}
           onSelectTab={setActiveTab}
           user={user}
+          onOpenStaffModal={() => setStaffModalOpen(true)}
           onLogout={onLogout}
           pendingBackdateCount={pendingBackdateCount}
           newInquiriesCount={newInquiriesCount}
+          followUpsDueCount={followUpsDueCount}
         />
 
         <div className="flex-1 min-w-0 flex flex-col">
@@ -391,6 +410,7 @@ function Workspace({
                     rationStock={systemState.rationStock}
                     websiteSyncEvents={systemState.websiteSyncEvents}
                     onNavigateTab={setActiveTab}
+                    canTestSync={currentRole === 'management'}
                     onSelectLedgerFromDashboard={(ledger) => {
                       setSelectedLedgerView(ledger);
                       setActiveTab('ledgers');
@@ -402,7 +422,8 @@ function Workspace({
                   <LeadsCrmView
                     leads={systemState.leads}
                     currentRole={currentRole}
-                    currentStaffName={activeProfile.staffName}
+                    currentStaffName={user.staffName}
+                    staffOptions={assignees}
                     onAddLead={handleAddLead}
                     onUpdateLead={handleUpdateLead}
                     onConvertLeadWithVoucher={handleConvertLeadWithVoucher}
@@ -439,7 +460,7 @@ function Workspace({
                   />
                 )}
 
-                {activeTab === 'website' && (
+                {activeTab === 'website' && currentRole === 'management' && (
                   <WebsiteSyncView
                     syncEvents={systemState.websiteSyncEvents}
                     onSimulateWebsiteSubmission={
@@ -470,6 +491,12 @@ function Workspace({
         <PrintStatementModal
           config={printConfig}
           onClose={() => setPrintConfig(null)}
+        />
+
+        <StaffAccessModal
+          open={staffModalOpen}
+          currentUser={user}
+          onClose={() => setStaffModalOpen(false)}
         />
       </div>
     </MotionConfig>
