@@ -12,7 +12,7 @@
  */
 (function () {
   // >>> Put your Render backend address here (no "/" at the end) <<<
-  var API_BASE = 'http://localhost:3000';
+  var API_BASE = 'https://bait-tul-noor.onrender.com';
   var ENDPOINT = API_BASE + '/api/public/inquiry';
 
   // >>> The society's WhatsApp number, digits only with country code (92 = Pakistan, no + and no 0) <<<
