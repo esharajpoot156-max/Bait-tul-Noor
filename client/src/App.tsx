@@ -14,7 +14,6 @@ import {
   SystemState,
   UserRole,
 } from './types/system';
-import { INITIAL_SYSTEM_STATE } from './data/seedData';
 import {
   computeChronologicalLedgers,
   formatPkr,
@@ -89,6 +88,18 @@ const TAB_TITLES: Record<ActiveTab, { title: string; subtitle: string }> = {
   },
 };
 
+// Shown only until the real records arrive from the server (or if the server cannot be reached).
+// It must stay EMPTY: showing sample records here would look like real society data.
+const EMPTY_SYSTEM_STATE: SystemState = {
+  leads: [],
+  transactions: [],
+  reconciliations: [],
+  assets: [],
+  rationStock: [],
+  auditTrail: [],
+  websiteSyncEvents: [],
+};
+
 // The main workspace. It is only shown after a successful login.
 function Workspace({
   user,
@@ -98,7 +109,7 @@ function Workspace({
   onLogout: () => void;
 }) {
   const [systemState, setSystemState] =
-    useState<SystemState>(INITIAL_SYSTEM_STATE);
+    useState<SystemState>(EMPTY_SYSTEM_STATE);
   const [dbStatus, setDbStatus] = useState<DatabaseHealth | null>(null);
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
